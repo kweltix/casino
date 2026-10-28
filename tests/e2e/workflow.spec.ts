@@ -1,4 +1,13 @@
 import { test, expect } from "@playwright/test";
+test.beforeEach(async ({ page }) => {
+  await page.goto("/login");
+  await page
+    .getByLabel("Пароль", { exact: true })
+    .fill("e2e-password-for-tests-only");
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:3100/");
+});
+
 test("search, review, edit, generate and cancel persist across reloads", async ({
   page,
 }) => {
@@ -100,4 +109,15 @@ test("manual entry and narrow viewport remain usable", async ({ page }) => {
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+});
+
+test("logout revokes the session and unauthenticated data is unavailable", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Выйти", exact: true }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  const response = await page.request.get("/api/workspace");
+  expect(response.status()).toBe(401);
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
 });

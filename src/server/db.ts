@@ -32,6 +32,8 @@ export class Store {
    CREATE TABLE IF NOT EXISTS run_companies(run_id TEXT NOT NULL REFERENCES runs(id), company_id TEXT NOT NULL REFERENCES companies(id), PRIMARY KEY(run_id,company_id));
    CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, runId TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, leaseUntil INTEGER, leaseOwner TEXT, availableAt INTEGER NOT NULL, error TEXT, createdAt TEXT NOT NULL);
    CREATE INDEX IF NOT EXISTS jobs_pending ON jobs(status, availableAt);
+   CREATE TABLE IF NOT EXISTS auth_sessions(token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, credential_tag TEXT NOT NULL);
+   CREATE TABLE IF NOT EXISTS auth_throttle(id INTEGER PRIMARY KEY, attempts INTEGER NOT NULL, window_start INTEGER NOT NULL);
    CREATE TABLE IF NOT EXISTS usage(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);`);
   }
   upsertCompany(input: CompanyInput): Company {

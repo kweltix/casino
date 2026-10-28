@@ -6,6 +6,8 @@ const env = {
   DATABASE_PATH: resolve("data/e2e-agent.sqlite"),
   ARTIFACT_DIR: resolve("data/e2e-artifacts"),
   AI_AGENT_TEST_MODE: "1",
+  APP_PASSWORD: "e2e-password-for-tests-only",
+  APP_ORIGIN: "http://127.0.0.1:3100",
   AI_PROVIDER_API_KEY: "e2e-placeholder-not-a-key",
   NEXT_TELEMETRY_DISABLED: "1",
 } as Record<string, string>;
@@ -27,8 +29,8 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "node --import tsx tests/fixtures/reset.ts && npm run dev -- --port 3100",
-      url: "http://127.0.0.1:3100/api/status",
+        "node --import tsx tests/fixtures/reset.ts && npm run build && npm start -- --port 3100",
+      url: "http://127.0.0.1:3100/api/health",
       reuseExistingServer: false,
       timeout: 90000,
       env,

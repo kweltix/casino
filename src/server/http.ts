@@ -10,6 +10,12 @@ import {
 } from "../domain/validation";
 import { getProviderStatus } from "../providers/config";
 import type { ProviderEnv } from "../providers/contracts";
+import {
+  SessionAuth,
+  appOrigin,
+  readSessionCookie,
+  sessionCookie,
+} from "./auth";
 import { artifactDir } from "../providers/images";
 const json = (data: unknown, status = 200) =>
   Response.json(data, {
@@ -69,19 +75,74 @@ export function createApi(store: Store, env: ProviderEnv = process.env) {
       const method = request.method;
       if (!["GET", "POST", "PATCH", "DELETE"].includes(method))
         throw new HttpError(405, "Метод не поддерживается");
+      const auth = new SessionAuth(store, env);
+      if (method === "GET" && path.join("/") === "health")
+        return json(
+          { status: auth.configured ? "ok" : "unconfigured" },
+          auth.configured ? 200 : 503,
+        );
+      const configuredOrigin = appOrigin(env);
       const transport = new URL(
         url.protocol + "//" + (request.headers.get("host") || url.host),
       );
-      if (!["localhost", "127.0.0.1", "[::1]"].includes(transport.hostname))
+      if (
+        configuredOrigin
+          ? transport.host !== new URL(configuredOrigin).host
+          : !["localhost", "127.0.0.1", "[::1]"].includes(transport.hostname)
+      )
         throw new HttpError(403, "Разрешён только локальный доступ");
       if (
         method !== "GET" &&
-        request.headers.get("origin") !== transport.origin
+        request.headers.get("origin") !== (configuredOrigin || transport.origin)
       )
         throw new HttpError(
           403,
           "Изменения разрешены только из интерфейса приложения",
         );
+      if (!auth.configured)
+        return json(
+          {
+            error:
+              "Доступ не настроен: задайте APP_PASSWORD длиной от 16 символов",
+          },
+          503,
+        );
+      const token = readSessionCookie(request.headers.get("cookie"), env);
+      if (path.join("/") === "auth/login" && method === "POST") {
+        const input = z
+          .object({ password: z.string().min(1).max(1024) })
+          .strict()
+          .parse(await body(request));
+        let session;
+        try {
+          session = await auth.login(input.password);
+        } catch (e) {
+          if (e instanceof Error && e.message === "RATE_LIMIT")
+            return Response.json(
+              { error: "Слишком много попыток. Повторите через 15 минут" },
+              {
+                status: 429,
+                headers: { "Retry-After": "900", "Cache-Control": "no-store" },
+              },
+            );
+          throw e;
+        }
+        if (!session) return json({ error: "Неверный пароль" }, 401);
+        const response = json({ ok: true });
+        response.headers.set("Set-Cookie", sessionCookie(session.token, env));
+        return response;
+      }
+      if (path.join("/") === "auth/logout" && method === "POST") {
+        z.object({})
+          .strict()
+          .parse(await body(request));
+        auth.logout(token);
+        const response = json({ ok: true });
+        response.headers.set("Set-Cookie", sessionCookie("", env, true));
+        return response;
+      }
+      if (!auth.isAuthenticated(token))
+        return json({ error: "Войдите в приложение" }, 401);
       if (method === "GET" && path.join("/") === "workspace")
         return json({
           companies: store.listCompanies(),

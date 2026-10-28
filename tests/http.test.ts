@@ -1,16 +1,27 @@
 import { afterEach, it, expect } from "vitest";
 import { createStore, type Store } from "../src/server/db";
 import { createApi } from "../src/server/http";
+import { SessionAuth, cookieName } from "../src/server/auth";
 const stores: Store[] = [];
 afterEach(() => {
   for (const s of stores.splice(0)) s.close();
 });
-const setup = () => {
+const setup = async () => {
   const s = createStore(":memory:");
   stores.push(s);
+  const env = {
+    AI_PROVIDER_API_KEY: "private-test-secret",
+    APP_PASSWORD: "http-test-password-long-enough",
+  };
+  const session = await new SessionAuth(s, env).login(env.APP_PASSWORD);
+  const handler = createApi(s, env);
   return {
     s,
-    api: createApi(s, { AI_PROVIDER_API_KEY: "private-test-secret" }),
+    api: (request: Request) => {
+      const headers = new Headers(request.headers);
+      headers.set("Cookie", cookieName(env) + "=" + session!.token);
+      return handler(new Request(request, { headers }));
+    },
   };
 };
 const request = (
@@ -37,7 +48,7 @@ const input = {
   ],
 };
 it("blocks cross-origin and non-JSON mutations before side effects", async () => {
-  const { s, api } = setup();
+  const { s, api } = await setup();
   expect(
     (await api(request("runs", "POST", { limit: 1 }, "https://hostile.test")))
       .status,
@@ -51,7 +62,7 @@ it("blocks cross-origin and non-JSON mutations before side effects", async () =>
   expect((await api(noJson)).status).toBe(415);
 });
 it("enforces run limits, unknown fields, payload size and identifiers", async () => {
-  const { api } = setup();
+  const { api } = await setup();
   expect((await api(request("runs", "POST", { limit: 21 }))).status).toBe(400);
   expect(
     (await api(request("companies", "POST", { ...input, execute: "x" })))
@@ -68,7 +79,7 @@ it("enforces run limits, unknown fields, payload size and identifiers", async ()
   expect((await api(request("runs/not-there", "DELETE"))).status).toBe(404);
 });
 it("creates durable search jobs without revealing secrets", async () => {
-  const { s, api } = setup();
+  const { s, api } = await setup();
   const res = await api(request("runs", "POST", { limit: 2 }));
   expect(res.status).toBe(201);
   const data = await res.json();
@@ -78,7 +89,7 @@ it("creates durable search jobs without revealing secrets", async () => {
   expect(status).toContain("available");
 });
 it("protects concurrent draft editing and returns the persisted message", async () => {
-  const { api } = setup();
+  const { api } = await setup();
   const c = await (await api(request("companies", "POST", input))).json();
   const updated = await api(
     request("companies/" + c.id, "PATCH", {
@@ -101,7 +112,7 @@ it("protects concurrent draft editing and returns the persisted message", async 
   expect(result.draftMessage).toBe("Добрый день");
 });
 it("requires analysis before concept and deduplicates active operations", async () => {
-  const { api, s } = setup();
+  const { api, s } = await setup();
   const c = await (await api(request("companies", "POST", input))).json();
   expect(
     (await api(request("companies/" + c.id + "/concept", "POST", {}))).status,
@@ -116,7 +127,7 @@ it("requires analysis before concept and deduplicates active operations", async 
   expect(s.listRuns()).toHaveLength(1);
 });
 it("keeps manual provenance and refuses arbitrary image file paths", async () => {
-  const { api } = setup();
+  const { api } = await setup();
   const c = await (
     await api(request("companies", "POST", { ...input, origin: "search" }))
   ).json();
@@ -125,7 +136,7 @@ it("keeps manual provenance and refuses arbitrary image file paths", async () =>
   expect(res.status).toBe(404);
 });
 it("accepts the actual local Host when Next normalizes the request URL", async () => {
-  const { api } = setup();
+  const { api } = await setup();
   const req = new Request("http://localhost:3100/api/runs", {
     method: "POST",
     headers: {
@@ -138,7 +149,7 @@ it("accepts the actual local Host when Next normalizes the request URL", async (
   expect((await api(req)).status).toBe(201);
 });
 it("rejects hostile Host even when its Origin matches", async () => {
-  const { api } = setup();
+  const { api } = await setup();
   const req = new Request("http://localhost:3100/api/runs", {
     method: "POST",
     headers: {

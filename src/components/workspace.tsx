@@ -27,6 +27,10 @@ export async function api<T>(
     cache: "no-store",
   });
   const data = await r.json();
+  if (r.status === 401) {
+    window.location.assign("/login");
+    throw new Error("Сессия завершена. Войдите снова");
+  }
   if (!r.ok) throw new Error(data.error || "Не удалось выполнить запрос");
   return data as T;
 }
@@ -171,9 +175,26 @@ export function Workspace() {
                   : "Подключения"}
             </span>
           </div>
-          <span className="topbar-location">
-            <Icon name="pin" size={15} /> Екатеринбург
-          </span>
+          <div className="topbar-actions">
+            <button
+              className="logout-button"
+              onClick={async () => {
+                try {
+                  await api("auth/logout", "POST", {});
+                  window.location.assign("/login");
+                } catch (e) {
+                  setNotice(
+                    e instanceof Error ? e.message : "Не удалось выйти",
+                  );
+                }
+              }}
+            >
+              Выйти
+            </button>
+            <span className="topbar-location">
+              <Icon name="pin" size={15} /> Екатеринбург
+            </span>
+          </div>
         </header>
         <main>
           <div className="page-heading">

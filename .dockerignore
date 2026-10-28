@@ -1,0 +1,10 @@
+.git
+.superpowers
+node_modules
+.next
+.next-e2e
+.env*
+data
+playwright-report
+test-results
+*.tsbuildinfo

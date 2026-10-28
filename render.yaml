@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: ai-agent
+    runtime: docker
+    branch: ai-agent-initial-version
+    plan: starter
+    numInstances: 1
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    disk:
+      name: ai-agent-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: APP_PASSWORD
+        sync: false
+      - key: AI_TEXT_MODEL
+        value: gpt-5-mini
+      - key: AI_IMAGE_MODEL
+        value: gpt-image-2.5-flare
