@@ -57,6 +57,7 @@ export class Store {
  addUsage(runId:string,v:UsageRecord):Usage {
   const u={...v,id:randomUUID(),runId,createdAt:new Date().toISOString()};this.db.prepare('INSERT INTO usage VALUES(?,?,?)').run(u.id,runId,JSON.stringify(u));return u;
  }
+ updateUsage(id:string,v:UsageRecord){const row=this.db.prepare('SELECT data FROM usage WHERE id=?').get(id) as {data:string}|undefined;if(row){const old=JSON.parse(row.data);this.db.prepare('UPDATE usage SET data=? WHERE id=?').run(JSON.stringify({...old,...v}),id);}}
  getUsage(runId?:string):Usage[]{ const rows=(runId?this.db.prepare('SELECT data FROM usage WHERE run_id=?').all(runId):this.db.prepare('SELECT data FROM usage').all()) as {data:string}[];return rows.map(r=>JSON.parse(r.data)); }
  close(){this.db.close();}
 }
