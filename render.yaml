@@ -3,15 +3,11 @@ services:
     name: ai-agent
     runtime: docker
     branch: ai-agent-initial-version
-    plan: starter
+    plan: free
     numInstances: 1
     region: frankfurt
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
-    disk:
-      name: ai-agent-data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
       - key: APP_PASSWORD
         sync: false
