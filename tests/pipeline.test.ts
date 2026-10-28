@@ -204,3 +204,43 @@ it("records possibly billed attempts even when provider fails", async () => {
   ).toBe(true);
   s.close();
 });
+it("preserves a user-reviewed draft through discovery and reanalysis", async () => {
+  const { s, c, q } = setup();
+  s.updateCompany(
+    c.id,
+    { draftMessage: "Проверенное личное сообщение", contactStatus: "reviewed" },
+    c.version,
+  );
+  const r = s.createRun({ limit: 1 });
+  const p = {
+    ...providers,
+    search: {
+      ...providers.search,
+      discover: async () => ({
+        companies: [{ name: c.name, address: c.address, sources: c.sources }],
+        usage: [],
+      }),
+    },
+  };
+  q.enqueueJob(r.id, "discover", {});
+  await processJob(q.claimJob("w")!, p, s);
+  await processJob(q.claimJob("w")!, p, s);
+  expect(s.getCompany(c.id)?.draftMessage).toBe("Проверенное личное сообщение");
+  expect(s.getCompany(c.id)?.contactStatus).toBe("reviewed");
+  expect(s.getCompany(c.id)?.analysis).toBeDefined();
+  s.close();
+});
+it("preserves an edited draft even while its contact status is new", async () => {
+  const { s, c, r, q } = setup();
+  s.updateCompany(
+    c.id,
+    { draftMessage: "Ещё не отправленный мой текст" },
+    c.version,
+  );
+  q.enqueueJob(r.id, "analyze", { companyId: c.id });
+  await processJob(q.claimJob("w")!, providers, s);
+  expect(s.getCompany(c.id)?.draftMessage).toBe(
+    "Ещё не отправленный мой текст",
+  );
+  s.close();
+});

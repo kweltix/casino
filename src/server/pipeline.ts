@@ -66,6 +66,10 @@ export async function processJob(
       const analysis = validateAnalysis(out.analysis, sources);
       q.finishJob(job, () => {
         const latest = store.getCompany(company.id)!;
+        const replaceDraft =
+          latest.contactStatus === "new" &&
+          (latest.draftMessage === "" || latest.draftSource === "generated") &&
+          latest.draftMessage === company.draftMessage;
         store.changeCompany(company.id, {
           analysis,
           sources,
@@ -73,10 +77,10 @@ export async function processJob(
           website: website.website || company.website,
           websiteExplanation: website.explanation,
           websiteCheckedAt: new Date().toISOString(),
-          draftMessage:
-            latest.draftMessage === company.draftMessage
-              ? analysis.draftMessage
-              : latest.draftMessage,
+          draftMessage: replaceDraft
+            ? analysis.draftMessage
+            : latest.draftMessage,
+          draftSource: replaceDraft ? "generated" : latest.draftSource,
         });
       });
       return;

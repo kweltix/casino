@@ -7,6 +7,7 @@ import {
   companyInputSchema,
 } from "../domain/validation";
 import type { Source } from "../domain/types";
+import { supportsOwnWebsite } from "./website-evidence";
 import {
   ProviderError,
   type Providers,
@@ -110,36 +111,37 @@ export function makeSearchProvider(
     async discover(input) {
       const v = runSchema.parse(input);
       const raw = await query(
-        "Найди до limit действующих независимых автосервисов в указанном городе. Можно использовать 2ГИС, Яндекс Карты, общедоступные каталоги и сайты компаний. Отдавай предпочтение сервисам с признаками деятельности, которым может помочь сайт. Не отбирай только по низкому рейтингу. Исключай явных дилеров и крупные сети. Для каждого нужен подтверждённый адрес в Екатеринбурге и минимум один источник. При нехватке данных верни меньше компаний. Если собственный сайт не подтверждён, website=null. Не извлекай личные сведения владельцев.",
+        "Найди до limit действующих независимых автосервисов в указанном городе. Можно использовать 2ГИС, Яндекс Карты, общедоступные каталоги и сайты компаний. Отдавай предпочтение сервисам с признаками деятельности, которым может помочь сайт. Не отбирай только по низкому рейтингу. Исключай явных дилеров и крупные сети. Для каждого нужен подтверждённый адрес в Екатеринбурге и минимум один источник. При нехватке данных верни меньше компаний. Если собственный сайт не подтверждён, website=null. Для подтверждённого сайта указывай точный URL из цитируемых sources и только если на этой странице наблюдаются название и адрес либо телефон этой компании; включи наблюдаемые совпадения в excerpt. Карточка каталога или соцсеть не является собственным сайтом. Не извлекай личные сведения владельцев.",
         v,
         discoverySchema,
         "service_discovery",
       );
       const value = discoverySchema.parse(jsonResult(raw));
       const urls = citedUrls(raw);
-      const companies = value.companies
-        .slice(0, v.limit)
-        .map((c) =>
-          companyInputSchema.parse({
-            name: c.name,
-            address: c.address,
-            phone: c.phone || undefined,
-            website:
-              c.website &&
-              [...urls].some(
-                (u) => new URL(u).hostname === new URL(c.website!).hostname,
-              )
-                ? c.website
-                : undefined,
-            sources: checkedSources(c.sources, urls),
-            origin: "search",
-          }),
-        );
+      const companies = value.companies.slice(0, v.limit).map((c) => {
+        const sources = checkedSources(c.sources, urls);
+        return companyInputSchema.parse({
+          name: c.name,
+          address: c.address,
+          phone: c.phone || undefined,
+          website:
+            c.website &&
+            supportsOwnWebsite(c.website, sources, {
+              name: c.name,
+              address: c.address,
+              phone: c.phone || undefined,
+            })
+              ? c.website
+              : undefined,
+          sources,
+          origin: "search",
+        });
+      });
       return { companies, usage: usageFor(raw, "discovery") };
     },
     async verifyWebsite(company) {
       const raw = await query(
-        "Независимо проверь наличие собственного сайта именно этой компании по названию, адресу и контактам. Найди также до двух местных конкурентов той же специализации и кратко опиши полезные элементы их сайтов в sources. Источники сравнения пометь в excerpt словом «Конкурент». Если сайт компании найден и принадлежность подтверждена совпадениями адреса/контактов, status=found и website=его адрес. not_found означает только «не найден в этой проверке», а не доказанное отсутствие. При слабом поиске status=unknown. Найденный сайт должен фигурировать в источниках.",
+        "Независимо проверь наличие собственного сайта именно этой компании по названию, адресу и контактам. Найди также до двух местных конкурентов той же специализации и кратко опиши полезные элементы их сайтов в sources. Источники сравнения пометь в excerpt словом «Конкурент». Если сайт компании найден и принадлежность подтверждена совпадениями адреса/контактов, status=found и website=его адрес. not_found означает только «не найден в этой проверке», а не доказанное отсутствие. При слабом поиске status=unknown. Найденный сайт должен фигурировать точным URL в цитируемых источниках. В excerpt страницы сайта укажи наблюдаемое название и адрес либо телефон компании. Совпадения только домена недостаточно; карточка каталога или соцсеть не является собственным сайтом.",
         {
           name: company.name,
           address: company.address,
@@ -151,20 +153,17 @@ export function makeSearchProvider(
       );
       const v = websiteSchema.parse(jsonResult(raw));
       const sources = checkedSources(v.sources, citedUrls(raw));
-      if (
-        v.status === "found" &&
-        (!v.website ||
-          !sources.some(
-            (s) => new URL(s.url).hostname === new URL(v.website!).hostname,
-          ))
-      )
-        throw new ProviderError("Сайт не подтверждён независимыми источниками");
       if (v.status !== "unknown" && sources.length === 0)
         throw new ProviderError("Проверка сайта не содержит источников");
+      const supported =
+        v.status !== "found" ||
+        (!!v.website && supportsOwnWebsite(v.website, sources, company));
       return {
-        status: v.status,
-        website: v.status === "found" ? v.website! : undefined,
-        explanation: v.explanation,
+        status: supported ? v.status : "unknown",
+        website: supported && v.status === "found" ? v.website! : undefined,
+        explanation: supported
+          ? v.explanation
+          : "Сайт не подтверждён: нужна точная ссылка и совпадение названия с адресом или телефоном компании. Проверьте вручную.",
         sources,
         usage: usageFor(raw, "website_research"),
       };

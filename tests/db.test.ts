@@ -83,3 +83,39 @@ describe("persistent companies", () => {
     s.close();
   });
 });
+it("serializes a read-modify-write against a second WAL connection", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-wal-"));
+  dirs.push(dir);
+  const a = createStore(join(dir, "test.sqlite"));
+  const c = a.upsertCompany(input);
+  const b = createStore(join(dir, "test.sqlite"));
+  b.db.pragma("busy_timeout = 0");
+  const read = a.getCompany.bind(a);
+  let blocked = false;
+  a.getCompany = (id: string) => {
+    const current = read(id);
+    try {
+      b.updateCompany(id, { draftMessage: "Competing edit" }, current!.version);
+    } catch (e) {
+      if ((e as { code: string }).code === "SQLITE_BUSY") blocked = true;
+      else throw e;
+    }
+    return current;
+  };
+  expect(() =>
+    a.updateCompany(c.id, { draftMessage: "First committed edit" }, c.version),
+  ).not.toThrow();
+  expect(blocked).toBe(true);
+  a.getCompany = read;
+  expect(a.getCompany(c.id)?.draftMessage).toBe("First committed edit");
+  const latest = b.getCompany(c.id)!;
+  expect(
+    b.updateCompany(
+      c.id,
+      { draftMessage: "Next committed edit" },
+      latest.version,
+    ).draftMessage,
+  ).toBe("Next committed edit");
+  a.close();
+  b.close();
+});

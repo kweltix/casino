@@ -32,6 +32,7 @@ export type Company = {
   version: number;
   contactStatus: ContactStatus;
   draftMessage: string;
+  draftSource?: "generated" | "user";
   analysis?: AnalysisResult;
   image?: ImageArtifact;
   createdAt: string;

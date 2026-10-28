@@ -43,27 +43,29 @@ export class Store {
       createHash("sha256")
         .update(normalize(v.name) + "|" + normalize(v.address))
         .digest("hex");
-    return this.db.transaction(() => {
-      const row = this.db
-        .prepare("SELECT data FROM companies WHERE identity=?")
-        .get(identity) as { data: string } | undefined;
-      if (row) return JSON.parse(row.data) as Company;
-      const now = new Date().toISOString();
-      const c: Company = {
-        ...v,
-        id: randomUUID(),
-        version: 1,
-        contactStatus: "new",
-        draftMessage: "",
-        websiteStatus: v.website ? "found" : "unknown",
-        createdAt: now,
-        updatedAt: now,
-      };
-      this.db
-        .prepare("INSERT INTO companies VALUES(?,?,?)")
-        .run(c.id, identity, JSON.stringify(c));
-      return c;
-    })();
+    return this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare("SELECT data FROM companies WHERE identity=?")
+          .get(identity) as { data: string } | undefined;
+        if (row) return JSON.parse(row.data) as Company;
+        const now = new Date().toISOString();
+        const c: Company = {
+          ...v,
+          id: randomUUID(),
+          version: 1,
+          contactStatus: "new",
+          draftMessage: "",
+          websiteStatus: v.website ? "found" : "unknown",
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.db
+          .prepare("INSERT INTO companies VALUES(?,?,?)")
+          .run(c.id, identity, JSON.stringify(c));
+        return c;
+      })
+      .immediate();
   }
   getCompany(id: string): Company | null {
     const r = this.db
@@ -92,7 +94,16 @@ export class Store {
   ): Company {
     const v = editSchema.parse({ ...patch, version });
     const { version: _, ...fields } = v;
-    return this.changeCompany(id, fields, version);
+    return this.changeCompany(
+      id,
+      {
+        ...fields,
+        ...(fields.draftMessage !== undefined
+          ? { draftSource: "user" as const }
+          : {}),
+      },
+      version,
+    );
   }
   changeCompany(
     id: string,
@@ -101,6 +112,7 @@ export class Store {
         Company,
         | "analysis"
         | "draftMessage"
+        | "draftSource"
         | "contactStatus"
         | "image"
         | "websiteStatus"
@@ -112,22 +124,24 @@ export class Store {
     >,
     version?: number,
   ): Company {
-    return this.db.transaction(() => {
-      const c = this.getCompany(id);
-      if (!c) throw new Error("NOT_FOUND");
-      if (version !== undefined && c.version !== version)
-        throw new Error("VERSION_CONFLICT");
-      const next = {
-        ...c,
-        ...patch,
-        version: c.version + 1,
-        updatedAt: new Date().toISOString(),
-      };
-      this.db
-        .prepare("UPDATE companies SET data=? WHERE id=?")
-        .run(JSON.stringify(next), id);
-      return next;
-    })();
+    return this.db
+      .transaction(() => {
+        const c = this.getCompany(id);
+        if (!c) throw new Error("NOT_FOUND");
+        if (version !== undefined && c.version !== version)
+          throw new Error("VERSION_CONFLICT");
+        const next = {
+          ...c,
+          ...patch,
+          version: c.version + 1,
+          updatedAt: new Date().toISOString(),
+        };
+        this.db
+          .prepare("UPDATE companies SET data=? WHERE id=?")
+          .run(JSON.stringify(next), id);
+        return next;
+      })
+      .immediate();
   }
   createRun(input: RunInput): Run {
     const v = runSchema.parse(input);

@@ -153,3 +153,106 @@ it("never leaks provider error bodies or credentials", async () => {
   }
   expect(() => extractText({ status: "incomplete", output: [] })).toThrow();
 });
+it("does not verify an uncited website path on a cited shared hostname", async () => {
+  const adapter = makeSearchProvider(cfg, async () =>
+    response(
+      {
+        status: "found",
+        website: "https://shared.example/invented",
+        explanation: "якобы сайт",
+        sources: [
+          {
+            url: "https://shared.example/competitor",
+            excerpt: "Сайт другого сервиса",
+          },
+        ],
+      },
+      ["https://shared.example/competitor"],
+    ),
+  );
+  expect((await adapter.verifyWebsite(company)).status).toBe("unknown");
+});
+it("does not verify a cited URL describing an unrelated company", async () => {
+  const adapter = makeSearchProvider(cfg, async () =>
+    response(
+      {
+        status: "found",
+        website: "https://service.example/",
+        explanation: "якобы сайт",
+        sources: [
+          {
+            url: "https://service.example/",
+            excerpt: "Другой сервис на другой улице",
+          },
+        ],
+      },
+      ["https://service.example/"],
+    ),
+  );
+  expect((await adapter.verifyWebsite(company)).status).toBe("unknown");
+});
+it("does not retain an uncited website from discovery on a cited hostname", async () => {
+  const adapter = makeSearchProvider(cfg, async () =>
+    response(
+      {
+        companies: [
+          {
+            name: "Сервис",
+            address: "Екатеринбург, Ленина, 1",
+            phone: null,
+            website: "https://shared.example/invented",
+            sources: [
+              {
+                url: "https://shared.example/card",
+                excerpt: "Сервис на Ленина",
+              },
+            ],
+          },
+        ],
+      },
+      ["https://shared.example/card"],
+    ),
+  );
+  expect(
+    (await adapter.discover({ limit: 1 })).companies[0].website,
+  ).toBeUndefined();
+});
+it("verifies a concrete cited website with matching name and address", async () => {
+  const adapter = makeSearchProvider(cfg, async () =>
+    response(
+      {
+        status: "found",
+        website: "https://service.example/contacts",
+        explanation: "Название и адрес совпадают",
+        sources: [
+          {
+            url: "https://service.example/contacts",
+            excerpt:
+              "Сервис. Екатеринбург, Ленина, 1. Диагностика автомобилей.",
+          },
+        ],
+      },
+      ["https://service.example/contacts"],
+    ),
+  );
+  expect((await adapter.verifyWebsite(company)).status).toBe("found");
+});
+it("does not call a directory card the company own website", async () => {
+  const adapter = makeSearchProvider(cfg, async () =>
+    response(
+      {
+        status: "found",
+        website: "https://2gis.ru/ekaterinburg/firm/123",
+        explanation: "карточка",
+        sources: [
+          {
+            url: "https://2gis.ru/ekaterinburg/firm/123",
+            excerpt: "Сервис. Екатеринбург, Ленина, 1.",
+          },
+        ],
+      },
+      ["https://2gis.ru/ekaterinburg/firm/123"],
+    ),
+  );
+  expect((await adapter.verifyWebsite(company)).status).toBe("unknown");
+});

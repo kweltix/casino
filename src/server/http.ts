@@ -100,11 +100,13 @@ export function createApi(store: Store, env: ProviderEnv = process.env) {
           return json({ runs: store.listRuns(), usage: store.getUsage() });
         if (path.length === 1 && method === "POST") {
           const data = runSchema.parse(await body(request));
-          const run = store.db.transaction(() => {
-            const r = store.createRun(data);
-            q.enqueueJob(r.id, "discover", {});
-            return store.getRun(r.id)!;
-          })();
+          const run = store.db
+            .transaction(() => {
+              const r = store.createRun(data);
+              q.enqueueJob(r.id, "discover", {});
+              return store.getRun(r.id)!;
+            })
+            .immediate();
           return json(run, 201);
         }
         if (path.length === 2) {
@@ -150,21 +152,23 @@ export function createApi(store: Store, env: ProviderEnv = process.env) {
             const kind = path[2] === "concept" ? "image" : "analyze";
             if (kind === "image" && !company.analysis)
               throw new HttpError(409, "Сначала выполните анализ");
-            const run = store.db.transaction(() => {
-              const active = store.db
-                .prepare(
-                  "SELECT runId,payload FROM jobs WHERE kind=? AND status IN ('pending','running')",
-                )
-                .all(kind) as { runId: string; payload: string }[];
-              const existing = active.find(
-                (j) => JSON.parse(j.payload).companyId === company.id,
-              );
-              if (existing) return store.getRun(existing.runId)!;
-              const r = store.createRun({ limit: 1 });
-              store.linkCompany(r.id, company.id);
-              q.enqueueJob(r.id, kind, { companyId: company.id });
-              return store.getRun(r.id)!;
-            })();
+            const run = store.db
+              .transaction(() => {
+                const active = store.db
+                  .prepare(
+                    "SELECT runId,payload FROM jobs WHERE kind=? AND status IN ('pending','running')",
+                  )
+                  .all(kind) as { runId: string; payload: string }[];
+                const existing = active.find(
+                  (j) => JSON.parse(j.payload).companyId === company.id,
+                );
+                if (existing) return store.getRun(existing.runId)!;
+                const r = store.createRun({ limit: 1 });
+                store.linkCompany(r.id, company.id);
+                q.enqueueJob(r.id, kind, { companyId: company.id });
+                return store.getRun(r.id)!;
+              })
+              .immediate();
             return json(run, 202);
           }
           if (path.length === 3 && path[2] === "image" && method === "GET") {
